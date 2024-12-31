@@ -11,10 +11,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { User } from '../user/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { ResetToken } from './entities/reset-token.entity';
+import { VerifyToken } from './entities/verify-token.entity';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([User, RefreshToken, ResetToken]),
+        TypeOrmModule.forFeature([User, RefreshToken, ResetToken, VerifyToken]),
         MailModule,
         JwtModule.registerAsync({
             imports: [ConfigModule],

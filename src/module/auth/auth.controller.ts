@@ -9,6 +9,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotpasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Response } from 'express';
+import { VerifyEmailTokenDto } from './dto/verify-email-token.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -25,6 +26,33 @@ export class AuthController {
             if (error instanceof UnauthorizedException) { throw error };
             throw new BadRequestException(error.message || 'Signup failed.');
         }
+    }
+
+    //========================= FOR GENERATE NEW VERIFICATION CODE ======================//
+    @Put('resend-verification-code')
+    @HttpCode(201) // Explicitly set the response
+    async resendVerificationCode(@Body('email') email: string) {
+        const result = await this.authService.resendVerificationCode(email);
+        return {
+            status: 'success',
+            message: 'A new verification code has been sent to your email.',
+            email: result.email,
+        };
+    }
+
+    //===================================FOR VERIFY OTP===================================//
+    @Put('verify-email')
+    @UseGuards(JwtAuthGuard)
+    @HttpCode(200) // Explicitly set the response
+    async verifyEmail(@Request() req, @Body() verifyEmailDto: VerifyEmailTokenDto) {
+        const { code } = verifyEmailDto;
+        const { email } = req.user; // Extract email from token
+
+        console.log(`Verifying email for email: ${email}, code: ${code}`);
+
+        const result = await this.authService.verifyEmail(email, code);
+
+        return { status: 'success', message: 'Email verified successfully.', data: result };
     }
 
     //=====================================FOR LOGIN====================================//
@@ -89,7 +117,7 @@ export class AuthController {
 
     // ============================ FOR REFRESHING ACCESS TOKEN ========================//
     @Post('refresh-token')
-    @HttpCode(201)
+    @HttpCode(201) // Explicitly set the response
     async refreshAccessToken(@Body() refreshTokenDto: RefreshTokenDto) {
         try {
             const { refreshToken } = refreshTokenDto;

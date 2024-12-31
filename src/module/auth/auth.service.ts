@@ -12,6 +12,7 @@ import { MailService } from '../service/mail.service';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
+import { VerifyToken } from './entities/verify-token.entity';
 
 @Injectable()
 export class AuthService {
@@ -22,16 +23,18 @@ export class AuthService {
         private readonly refreshTokenRepository: Repository<RefreshToken>,
         @InjectRepository(ResetToken)
         private readonly resetTokenRepository: Repository<ResetToken>,
+        @InjectRepository(VerifyToken)
+        private readonly verifyTokenRepository: Repository<VerifyToken>,
         private readonly jwtService: JwtService,
         private readonly mailService: MailService,
     ) { }
 
-    // ==============================Helper function to generate refresh token ============================//
+    // ============================== Helper function to generate refresh token ============================//
     private generateRefreshToken(): string {
         return uuidv4();
     }
 
-    // ======================================== For Signup Service========================================//
+    // ========================================== For Signup Service========================================//
     async signup(signupDto: SignupDto) {
 
         const { email, password, confirmPassword, firstName, lastName, phoneNumber } = signupDto;
@@ -49,6 +52,7 @@ export class AuthService {
         // Hash password 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // create the new user in the database
         const newUser = this.userRepository.create({
             email,
             password: hashedPassword,
@@ -57,15 +61,41 @@ export class AuthService {
             phoneNumber,
             verifiedUser: false,
         });
+
+        // saved the new user in the database
         const savedUser = await this.userRepository.save(newUser);
 
         // Generate access token and refresh token
-        const accessToken = this.jwtService.sign({ id: savedUser.id });
+        const accessToken = this.jwtService.sign({ id: savedUser.id, email: savedUser.email });
         const refreshToken = this.generateRefreshToken();
 
         // Store refresh token in the database
         await this.storeRefreshToken(refreshToken, savedUser);
 
+        // Generate 6-digit code and save to verify code
+        const code = Math.floor(100000 + Math.random() * 900000).toString(); // Random 6-digit code
+        const expiryDate = new Date(Date.now() + 10 * 60 * 1000); // 10-minute expiry
+
+        // create the verification token in the database
+        const verifyToken = this.verifyTokenRepository.create({
+            code,
+            user: savedUser,
+            expiryDate,
+        });
+
+        // saved the verification token in database
+        await this.verifyTokenRepository.save(verifyToken);
+
+        // Create a Email body for verification code 
+        const emailBody =
+            `<p>Hi ${firstName},</p>
+            <p>Your verification code is: <b>${code}</b>.</p>
+            <p>This code is valid for 10 minutes.</p>`;
+
+        // Send email verification code
+        await this.mailService.sendMail(email, 'Verify Your Email', emailBody);
+
+        // Return the user signup data
         return {
             id: savedUser.id,
             email: savedUser.email,
@@ -78,7 +108,97 @@ export class AuthService {
         }
     }
 
-    // ======================================== For Login Service========================================//
+    // =========================== For Generate New Verification Code Service===============================//
+    async resendVerificationCode(email: string): Promise<{ email: string }> {
+        // Check if the user exists
+        const user = await this.userRepository.findOne({
+            where: { email },
+            select: ['id', 'email', 'password', 'firstName', 'lastName', 'phoneNumber']
+        });
+        if (!user) {
+            throw new BadRequestException('User with this email does not exist.');
+        }
+
+        if (user.verifiedUser) {
+            throw new BadRequestException('Email is already verified.');
+        }
+
+        // Generate a new verification code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiryDate = new Date(Date.now() + 10 * 60 * 1000); // 10-minute expiry
+
+        // Create or update the verification token in the database
+        let verifyToken = await this.verifyTokenRepository.findOne({
+            where: { user: { id: user.id } },
+        });
+
+        if (verifyToken) {
+            // Update existing token
+            verifyToken.code = code;
+            verifyToken.expiryDate = expiryDate;
+            await this.verifyTokenRepository.save(verifyToken);
+        } else {
+            // Create a new token
+            verifyToken = this.verifyTokenRepository.create({
+                code,
+                user,
+                expiryDate,
+            });
+            await this.verifyTokenRepository.save(verifyToken);
+        }
+
+        // Send the new verification code to the user's email
+        const emailBody =
+            `<p>Hi ${user.firstName},</p>
+           <p>Your new verification code is: <b>${code}</b>.</p>
+           <p>This code is valid for 10 minutes.</p>`;
+        await this.mailService.sendMail(user.email, 'Verify Your Email', emailBody);
+
+        return { email: user.email };
+    }
+
+    // ====================================== For Verify OTP Service ======================================//
+    async verifyEmail(email: string, code: string): Promise<{ email: string }> {
+
+        // Find the user by email
+        const user = await this.userRepository.findOne({ where: { email } });
+        if (!user) {
+            throw new UnauthorizedException('Invaalid token not found.');
+        }
+
+        // Find the verification token for the user
+        const verifyToken = await this.verifyTokenRepository.findOne({
+            where: { user: { id: user.id }, code },
+        });
+
+        if (!verifyToken) {
+            throw new BadRequestException('Invalid verification code.');
+        }
+
+        if (new Date() > verifyToken.expiryDate) {
+            throw new BadRequestException('Verification code has expired. Please request a new code.');
+        }
+
+        // Check if the token has expired
+        if (new Date() > verifyToken.expiryDate) {
+            throw new BadRequestException('Verification code has expired.');
+        }
+
+        // Mark user as verified
+        user.verifiedUser = true;
+        await this.userRepository.save(user);
+
+        // Send a welcome email
+        const welcomeEmailBody = `<p>Welcome to our Hello Pay, ${user.firstName}!</p>`;
+        await this.mailService.sendMail(user.email, 'Welcome!', welcomeEmailBody);
+
+        // Delete the verification token
+        await this.verifyTokenRepository.delete({ id: verifyToken.id });
+
+        return { email: user.email };
+    }
+
+    // =========================================== For Login Service========================================//
     async login({ email, password }: LoginDto) {
 
         // Find the user by mail address
@@ -102,7 +222,7 @@ export class AuthService {
         return { userId: user.id, accessToken, refreshToken };
     }
 
-    // ================================== For Get Profile By JWT Service===============================//
+    // ======================================= For Get Profile By JWT Service===============================//
     async getProfile(userId: number) {
         const user = await this.userRepository.findOne({
             where: { id: userId },
@@ -115,7 +235,7 @@ export class AuthService {
         return profile;
     }
 
-    // =============================== For Update Password By JWT Service=================================//
+    // ================================= For Update Password By JWT Service=================================//
     async updatePassword(userId: number, newPassword: string, confirmNewPassword: string) {
         // Find the user by ID and select the password
         const user = await this.userRepository.findOne({
@@ -170,7 +290,7 @@ export class AuthService {
         };
     }
 
-    // ======================================== For Forgot Password Service =================================//
+    // ========================================= For Forgot Password Service =================================//
     async forgotPassword(email: string,) {
         const user = await this.userRepository.findOne({
             where: { email },
@@ -218,7 +338,7 @@ export class AuthService {
         }
     }
 
-    // ======================================== For Reset Paasword  Service =================================//
+    // ========================================= For Reset Paasword  Service =================================//
     async resetPassword(resetToken: string, newPassword: string, confirmPassword: string) {
         // Validate the reset token
         const token = await this.resetTokenRepository.findOne({
@@ -264,8 +384,7 @@ export class AuthService {
         await this.mailService.sendMail(user.email, subject, html);
     }
 
-
-    // ================================ For Refresh Token generate Service ===================================//
+    // ============================== For Refresh Token Generate and Save Service ============================//
     async generateuserToken(userId: number) {
         const refreshToken = uuidv4();
         return { refreshToken };
