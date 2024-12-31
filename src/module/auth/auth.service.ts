@@ -4,11 +4,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { ResetToken } from './entities/reset-token.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
+import { MailService } from '../service/mail.service';
+import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { nanoid } from 'nanoid';
 
 @Injectable()
 export class AuthService {
@@ -17,7 +20,10 @@ export class AuthService {
         private readonly userRepository: Repository<User>,
         @InjectRepository(RefreshToken)
         private readonly refreshTokenRepository: Repository<RefreshToken>,
+        @InjectRepository(ResetToken)
+        private readonly resetTokenRepository: Repository<ResetToken>,
         private readonly jwtService: JwtService,
+        private readonly mailService: MailService,
     ) { }
 
     // ==============================Helper function to generate refresh token ============================//
@@ -164,7 +170,102 @@ export class AuthService {
         };
     }
 
-    // =================================== For Refresh Token Service ========================================//
+    // ======================================== For Forgot Password Service =================================//
+    async forgotPassword(email: string,) {
+        const user = await this.userRepository.findOne({
+            where: { email },
+            select: ['id', 'email',]
+        });
+
+        // Set the expiration date
+        const expiryDate = new Date();
+        expiryDate.setHours(expiryDate.getHours() + 1);
+
+        // User validation Check
+        if (!user) {
+            throw new UnauthorizedException('Invalid email or User Not exist');
+        }
+
+        // Save The New Generate Reset Token in DB
+        else {
+            const resetToken = nanoid(64);
+
+            // Create a new reset token record in the database and set the expiration date
+            const newResetToken = this.resetTokenRepository.create({ token: resetToken, user, expiryDate });
+
+            // Remove the existing refresh token for the user if it exists
+            const existingToken = await this.resetTokenRepository.findOne({ where: { user } });
+            if (existingToken) {
+                await this.resetTokenRepository.delete({ id: existingToken.id });
+            }
+
+            // Save the new reset token in the database with the expiration date and user reference
+            await this.resetTokenRepository.save(newResetToken);
+
+            // Construct the reset password link
+            const resetPasswordUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+            // Send the reset password email
+            const subject = "Password Reset Request";
+            const html = `
+            <p>Hello,</p>
+            <p>We received a request to reset your password. Please use the link below to set a new password:</p>
+            <a href="${resetPasswordUrl}">Reset Password</a>
+            <p>This link will expire in 1 hour.</p>
+            <p>If you did not request a password reset, please ignore this email.</p> `;
+
+            await this.mailService.sendMail(user.email, subject, html);
+        }
+    }
+
+    // ======================================== For Reset Paasword  Service =================================//
+    async resetPassword(resetToken: string, newPassword: string, confirmPassword: string) {
+        // Validate the reset token
+        const token = await this.resetTokenRepository.findOne({
+            where: { token: resetToken },
+            relations: ['user'],
+        });
+
+        if (!token) {
+            throw new UnauthorizedException('Invalid reset password Link.');
+        }
+
+        // Check if the token has expired
+        if (new Date() > token.expiryDate) {
+            await this.resetTokenRepository.delete({ id: token.id }); // Clean up expired token
+            throw new UnauthorizedException('Reset token has expired.');
+        }
+
+        const user = token.user;
+
+        // Verify if the passwords match
+        if (newPassword !== confirmPassword) {
+            throw new BadRequestException('New password and confirm password do not match.');
+        }
+
+        // Hash the new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        //  Update the user's password in the database
+        user.password = hashedPassword;
+        await this.userRepository.save(user);
+
+        //  Delete the used reset token
+        await this.resetTokenRepository.delete({ id: token.id });
+
+        // Send a success email to the user
+        const subject = "Password Reset Successful";
+        const html = `
+          <p>Hello ${user.firstName},</p>
+          <p>Your password has been reset successfully. If you did not perform this action, please contact support immediately.</p>
+          <p>Thank you,</p>
+          <p>The Team</p>  `;
+
+        await this.mailService.sendMail(user.email, subject, html);
+    }
+
+
+    // ================================ For Refresh Token generate Service ===================================//
     async generateuserToken(userId: number) {
         const refreshToken = uuidv4();
         return { refreshToken };

@@ -1,12 +1,14 @@
 // auth.controller.ts
 import { Body, Controller, Post, UseGuards, Req, Get, Put, UnauthorizedException, Request, BadRequestException, InternalServerErrorException, Res, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { JwtAuthGuard } from './guards/jwt.guard';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { JwtAuthGuard } from './guards/jwt.guard';
-import { Response } from 'express';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotpasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -96,5 +98,25 @@ export class AuthController {
         } catch (error) {
             throw new UnauthorizedException(error.message || 'Invalid refresh token');
         }
+    }
+
+    // ============================== FOR FORGOT PASSWORD ============================//
+    @Post('forgot-password')
+    @HttpCode(201) // Explicitly set the response
+    async forgotPassword(@Body() forgotpasswordDto: ForgotpasswordDto) {
+        await this.authService.forgotPassword(forgotpasswordDto.email)
+        return { status: "Success", message: 'If this User exists, they will recive an email' }
+    }
+
+    // ============================ FOR RESET PASSWORD ============================//
+    @Post('reset-password')
+    @HttpCode(201) // Explicitly set the response
+    async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+        await this.authService.resetPassword(
+            resetPasswordDto.resetToken,
+            resetPasswordDto.newPassword,
+            resetPasswordDto.confirmPassword
+        )
+        return { status: "Success", message: 'Password has been reset successfully.' };
     }
 }

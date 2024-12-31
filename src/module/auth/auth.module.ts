@@ -1,18 +1,21 @@
 // auth.module.ts
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../user/entities/user.entity';
+import { MailModule } from '../service/mail.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from '../auth/guards/jwt.strategy';
 import { CookieStrategy } from '../auth/guards/cookie.strategy';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { User } from '../user/entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
+import { ResetToken } from './entities/reset-token.entity';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([User, RefreshToken]),
+        TypeOrmModule.forFeature([User, RefreshToken, ResetToken]),
+        MailModule,
         JwtModule.registerAsync({
             imports: [ConfigModule],
             inject: [ConfigService],
