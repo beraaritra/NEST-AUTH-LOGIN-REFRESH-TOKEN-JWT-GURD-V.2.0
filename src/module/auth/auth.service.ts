@@ -226,7 +226,7 @@ export class AuthService {
     async getProfile(userId: number) {
         const user = await this.userRepository.findOne({
             where: { id: userId },
-            select: ['id', 'email', 'password', 'verifiedUser', 'firstName', 'lastName', 'createdAt', 'updatedAt'],
+            select: ['id', 'email', 'password', 'phoneNumber', 'verifiedUser', 'firstName', 'lastName', 'createdAt', 'updatedAt'],
         });
         if (!user) {
             throw new UnauthorizedException('User not found');
