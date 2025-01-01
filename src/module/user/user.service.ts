@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 
+
 @Injectable()
 export class UserService {
     constructor(
@@ -10,7 +11,7 @@ export class UserService {
         private readonly userRepository: Repository<User>,
     ) { }
 
-    // Fetch user data by ID
+    // ========================================== For Fetch User By Id Service========================================//
     async findUserById(userId: number): Promise<User> {
         try {
             const user = await this.userRepository.findOne({ where: { id: userId } });
@@ -28,7 +29,7 @@ export class UserService {
         }
     }
 
-    // Fetch all users
+    // ========================================== For Fetch All User Service========================================//
     async findAllUsers(): Promise<User[]> {
         try {
             const users = await this.userRepository.find();

@@ -1,5 +1,5 @@
 // auth.service.ts
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { VerifyToken } from './entities/verify-token.entity';
+import { ApiTags } from '@nestjs/swagger';
 
 @Injectable()
 export class AuthService {
@@ -37,7 +38,7 @@ export class AuthService {
     // ========================================== For Signup Service========================================//
     async signup(signupDto: SignupDto) {
 
-        const { email, password, confirmPassword, firstName, lastName, phoneNumber } = signupDto;
+        const { email, password, firstName, lastName, phoneNumber } = signupDto;
 
         // Check is user already existing or not
         const user = await this.userRepository.findOne({
@@ -47,7 +48,7 @@ export class AuthService {
         if (user) throw new BadRequestException('User With This Email already exists');
 
         // Check password match 
-        if (password !== confirmPassword) throw new BadRequestException('Passwords do not match.');
+        // if (password !== confirmPassword) throw new BadRequestException('Passwords do not match.');
 
         // Hash password 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -111,9 +112,10 @@ export class AuthService {
     // =========================== For Generate New Verification Code Service===============================//
     async resendVerificationCode(email: string): Promise<{ email: string }> {
         // Check if the user exists
+        // console.log('Email received:', email);
         const user = await this.userRepository.findOne({
             where: { email },
-            select: ['id', 'email', 'password', 'firstName', 'lastName', 'phoneNumber']
+            select: ['id', 'email', 'password', 'verifiedUser', 'firstName', 'lastName', 'phoneNumber']
         });
         if (!user) {
             throw new BadRequestException('User with this email does not exist.');
@@ -213,7 +215,7 @@ export class AuthService {
         if (!user.verifiedUser) { throw new UnauthorizedException('User not verified') }
 
         // Generate access token and refresh token
-        const accessToken = this.jwtService.sign({ id: user.id });
+        const accessToken = this.jwtService.sign({ id: user.id, email: user.email });
         const refreshToken = this.generateRefreshToken();
 
         // Store refresh token in the database
@@ -275,7 +277,7 @@ export class AuthService {
         const { user } = tokenRecord;
 
         // Generate a new Access Token
-        const newAccessToken = this.jwtService.sign({ id: user.id });
+        const newAccessToken = this.jwtService.sign({ id: user.id, email: user.email });
 
         // Generate a new Refresh Token
         const newRefreshToken = this.generateRefreshToken();
@@ -407,4 +409,19 @@ export class AuthService {
         // Save the new refresh token in the database
         await this.refreshTokenRepository.save(newRefreshToken);
     }
+
+    // ========================================= For Logout Service =========================================//
+    async logout(userId: number): Promise<{ message: string }> {
+        // Find and delete the refresh token associated with the user
+        const deleteResult = await this.refreshTokenRepository.delete({ user: { id: userId } });
+
+        // Check if any token was actually deleted
+        if (deleteResult.affected === 0) {
+            throw new NotFoundException('No active refresh token found for the user.');
+        }
+
+        // Return a response message
+        return { message: 'Logout successful. user tokens have been Deleted From DB.' };
+    }
+
 }

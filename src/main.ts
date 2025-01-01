@@ -1,9 +1,9 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { setupSwagger } from './module/swgger-docs/swagger.config';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap'); // Create a logger instance with a context name
   const app = await NestFactory.create(AppModule);
 
   // Set global prefix for all routes
@@ -16,9 +16,13 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  // Setup Swagger
+  setupSwagger(app);
 
-  logger.log(`Application is running on: http://localhost:${port}/api`);
+  const PORT = process.env.PORT ?? 3000;
+  await app.listen(PORT);
+
+  Logger.log(`Application is running on: http://localhost:${PORT}/api`);
+  Logger.log(`Swagger documentation available at http://localhost:${PORT}/api-docs`);
 }
 bootstrap();

@@ -1,8 +1,12 @@
-// change-password.dto.ts
+import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
 
 export class ChangePasswordDto {
 
+    @ApiProperty({
+        description: 'New password for the user. Must include at least one letter, one number, and one special character.',
+        example: 'NewP@ssw0rd',
+    })
     @IsNotEmpty()
     @IsString()
     @Matches(/^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$/, {
@@ -11,6 +15,10 @@ export class ChangePasswordDto {
     })
     newPassword: string;
 
+    @ApiProperty({
+        description: 'Confirmation of the new password. Must match the new password field.',
+        example: 'NewP@ssw0rd',
+    })
     @IsNotEmpty()
     @IsString()
     confirmNewPassword: string;
